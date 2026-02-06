@@ -3,6 +3,7 @@ import { ContextBuilder } from './context.js';
 import { ToolRegistry } from './tools/registry.js';
 import { SessionManager } from '../session/manager.js';
 import { MemoryStore } from './memory.js';
+import { OllamaClient, OllamaMessage } from '../api/ollama.js';
 
 export class AgentLoop {
   private logger: Logger;
@@ -10,6 +11,7 @@ export class AgentLoop {
   private toolRegistry: ToolRegistry;
   private sessionManager: SessionManager;
   private memoryStore: MemoryStore;
+  private ollamaClient: OllamaClient;
   private isRunning: boolean;
 
   constructor() {
@@ -18,6 +20,7 @@ export class AgentLoop {
     this.toolRegistry = new ToolRegistry();
     this.sessionManager = new SessionManager();
     this.memoryStore = new MemoryStore();
+    this.ollamaClient = new OllamaClient();
     this.isRunning = false;
   }
 
@@ -96,9 +99,67 @@ export class AgentLoop {
 
     this.logger.debug('Built context:', context);
 
-    // 这里应该调用LLM生成响应
-    // 暂时模拟一个简单的响应
-    const response = 'Hello! I am microbot, a lightweight AI agent.';
+    // Prepare messages for the Ollama chat API
+    const messages: OllamaMessage[] = [];
+    let response: string;
+
+    // Add system message if available
+    if (context.system) {
+      messages.push({
+        role: 'system',
+        content: context.system
+      });
+    }
+
+    // Add historical messages
+    if (context.history && Array.isArray(context.history)) {
+      for (const msg of context.history) {
+        if (msg.role && msg.content) {
+          messages.push({
+            role: msg.role === 'user' || msg.role === 'assistant' || msg.role === 'system'
+              ? msg.role
+              : 'user',
+            content: typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)
+          });
+        }
+      }
+    }
+
+    // Add current message
+    messages.push({
+      role: 'user',
+      content: message.content
+    });
+
+    try {
+      // Check if model exists before calling API
+      const requestedModel = this.ollamaClient.getConfig().model || 'qwen3-vl:8b';
+      const modelExists = await this.ollamaClient.modelExists(requestedModel);
+
+      if (!modelExists) {
+        this.logger.warn(`Model ${requestedModel} not found. Available models need to be pulled first.`);
+        response = 'Sorry, the requested model is not available. Please make sure the qwen3-vl:8b model is pulled in Ollama using "ollama pull qwen3-vl:8b".';
+        this.logger.info('Generated model not found response:', response);
+      } else {
+        // Call Ollama API to get response
+        const ollamaResponse = await this.ollamaClient.chat({
+          model: requestedModel,
+          messages: messages,
+          options: {
+            temperature: 0.7,
+            num_predict: 1024
+          }
+        });
+
+        // Extract the response from Ollama response
+        response = ollamaResponse.message?.content || 'Sorry, I could not generate a response.';
+        this.logger.info('Generated response from Ollama:', response);
+      }
+    } catch (error) {
+      this.logger.error('Error calling Ollama API:', error);
+      response = 'Sorry, I encountered an error processing your request. Please ensure Ollama is running and the model is available.';
+      this.logger.info('Generated error response:', response);
+    }
 
     // 添加响应到会话
     session.addMessage({

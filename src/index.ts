@@ -1,6 +1,10 @@
 import { Command } from 'commander';
 import { AgentLoop } from './agent/loop.js';
 import { Logger } from './utils/logger.js';
+import dotenv from 'dotenv';
+
+// Load environment variables
+dotenv.config();
 
 console.log('Microbot starting...');
 const logger = new Logger();
