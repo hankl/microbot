@@ -54,10 +54,10 @@ export class AgentLoop {
     const feishuConfig = options?.feishuConfig || {
       appId: process.env.FEISHU_APP_ID || '',
       appSecret: process.env.FEISHU_APP_SECRET || '',
-      verificationToken: process.env.FEISHU_VERIFICATION_TOKEN || ''
+      reconnectInterval: process.env.FEISHU_RECONNECT_INTERVAL ? parseInt(process.env.FEISHU_RECONNECT_INTERVAL) : undefined
     };
 
-    if (feishuConfig.appId && feishuConfig.appSecret && feishuConfig.verificationToken) {
+    if (feishuConfig.appId && feishuConfig.appSecret) {
       this.feishuIntegration = new FeishuIntegration(feishuConfig);
     }
   }

@@ -12,6 +12,7 @@ A lightweight AI agent framework inspired by openclaw & nanobot, implemented wit
 - **WebSocket Support**: Real-time communication
 - **Local AI Models**: Integrated Ollama support with qwen3-vl model
 - **Memory Persistence**: Context-aware conversations with persistent memory
+- **Feishu Integration**: Real-time communication with Feishu (Lark) messaging platform
 
 ## 📦 Installation
 
@@ -84,6 +85,81 @@ OLLAMA_PROTOCOL=http
 OLLAMA_MODEL=qwen3-vl:8b
 ```
 
+### Feishu Integration (WebSocket)
+
+#### Prerequisites
+
+1. **Feishu Developer Account**: You need to be a Feishu (Lark) developer
+2. **Feishu App**: Create an app in the Feishu Developer Console
+3. **Internet Access**: Your server needs outbound internet access to connect to Feishu WebSocket
+
+#### Setup Steps
+
+1. **1. Create Feishu App**
+   - Go to [Feishu Developer Console](https://open.feishu.cn/app)
+   - Create a new app ("From Scratch" or "Enterprise Self-built App")
+   - Get your `App ID` and `App Secret` from the "Credentials" section
+
+2. **2. Configure App Features**
+   - Enable "Bot" feature in the app settings
+   - Enable "Event Subscriptions" for message events
+   - Add the required scopes: `im:message`, `im:message:read`, `im:message:send`
+
+3. **3. Update Environment Variables**
+   - Add these variables to your `.env` file:
+   ```env
+   FEISHU_APP_ID=your_app_id
+   FEISHU_APP_SECRET=your_app_secret
+   ```
+
+4. **4. Start MicroBot**
+   - Run MicroBot with Feishu integration:
+   ```bash
+   microbot start
+   ```
+   - The Feishu WebSocket connection will be established automatically
+
+5. **5. Test the Integration**
+   - Add the bot to a Feishu group or chat
+   - Send a message to the bot
+   - The bot should respond using the local Ollama model
+
+#### Feishu Integration Details
+
+- **WebSocket Endpoint**: `wss://open.feishu.cn/open-apis/ws/v3/events`
+- **Connection Type**: Client-initiated WebSocket connection
+- **Authentication**: Uses Feishu API access tokens
+- **Heartbeat**: Automatic 30-second heartbeat to maintain connection
+- **Reconnection**: Automatic reconnection on failure
+- **Supported Events**: `im.message.receive_v1` (message events)
+- **Message Processing**: All Feishu messages are automatically processed by the same agent logic as WebSocket messages
+
+#### Troubleshooting
+
+- **WebSocket Connection Failed**: Check your App ID and App Secret
+- **No Response from Bot**: Verify Ollama is running and the model is available
+- **Access Token Error**: Check if your app has the correct scopes
+- **Network Issues**: Ensure your server has outbound internet access
+
+#### Advanced Configuration
+
+You can customize the Feishu integration in your code:
+
+```typescript
+import { MicroBot } from 'microbot';
+
+const bot = new MicroBot({
+  feishuConfig: {
+    appId: 'your_app_id',
+    appSecret: 'your_app_secret',
+    reconnectInterval: 10000,  // 10 seconds
+    heartbeatInterval: 45000  // 45 seconds
+  }
+});
+
+await bot.start();
+```
+
 ### Programmatic Usage
 
 ```typescript
@@ -118,8 +194,10 @@ microbot/
 │   │   ├── loop.ts     # Agent loop with Ollama integration
 │   │   ├── memory.ts   # Memory management
 │   │   └── skills.ts   # Agent skills
-│   ├── api/            # API clients (Ollama client)
-│   │   └── ollama.ts   # Ollama API client
+│   ├── api/            # API clients
+│   │   ├── ollama.ts   # Ollama API client
+│   │   ├── feishu.ts   # Feishu (Lark) integration
+│   │   └── websocket.ts # WebSocket server
 │   ├── session/        # Session management
 │   │   └── manager.ts  # Session manager
 │   ├── utils/          # Utilities
