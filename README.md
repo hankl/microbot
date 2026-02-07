@@ -10,27 +10,20 @@ A lightweight AI agent framework inspired by openclaw & nanobot, implemented wit
 - **Session Management**: Built-in session handling
 - **Tool Integration**: Simple tool registry system
 - **WebSocket Support**: Real-time communication
-- **Local AI Models**: Integrated Ollama support with qwen3-vl model
+- **Multi-Model Support**: Support for Ollama, MiniMax, and OpenAI-compatible APIs
 - **Memory Persistence**: Context-aware conversations with persistent memory
-- **Feishu Integration**: Real-time communication with Feishu (Lark) messaging platform
+- **Feishu Integration**: Real-time communication with Feishu (Lark) messaging platform using official SDK
 
 ## 📦 Installation
 
 ### Prerequisites
 
 - Node.js >= 20.0.0
-- Ollama (for local AI model support)
-- qwen3-vl:8b model (install with `ollama pull qwen3-vl:8b`)
+- For local AI models: Ollama (optional, for local model support)
 
 ### Install
 
 ```bash
-# Install Ollama first
-# Visit https://ollama.ai to download and install
-
-# Pull the qwen3-vl:8b model
-ollama pull qwen3-vl:8b
-
 # Using pnpm
 pnpm add microbot
 
@@ -41,26 +34,22 @@ npm install microbot
 yarn add microbot
 ```
 
+### Global Installation
+
+To use the `microbot` CLI command globally:
+
+```bash
+npm install -g .
+# or
+pnpm link --global
+```
+
 ## 🛠️ Usage
-
-### Local Ollama Setup
-
-Before running microbot with the qwen3-vl model, make sure:
-
-1. Ollama is installed and running on your system
-2. The qwen3-vl:8b model is downloaded:
-   ```bash
-   ollama pull qwen3-vl:8b
-   ```
-3. Ollama server is running (usually starts automatically):
-   ```bash
-   ollama serve
-   ```
 
 ### CLI Usage
 
 ```bash
-# Start MicroBot (make sure Ollama is running first)
+# Start MicroBot
 microbot start
 
 # Check status
@@ -77,13 +66,38 @@ Copy the default configuration:
 cp .env.example .env
 ```
 
-The default configuration connects to a local Ollama instance:
+#### Model Configuration
+
+MicroBot supports multiple AI model providers through a unified interface:
+
 ```env
+# Model Type: ollama, minimax, or openai
+MODEL_TYPE=ollama
+
+# For Ollama (Local Models)
 OLLAMA_HOST=localhost
 OLLAMA_PORT=11434
 OLLAMA_PROTOCOL=http
 OLLAMA_MODEL=qwen3-vl:8b
+
+# For MiniMax (Cloud Models)
+MODEL_NAME=MiniMax-M2.1
+MODEL_API_KEY=your_minimax_api_key
+MODEL_BASE_URL=https://api.minimaxi.com/v1
+
+# For OpenAI-Compatible APIs
+MODEL_NAME=gpt-4
+MODEL_API_KEY=your_openai_api_key
+MODEL_BASE_URL=https://api.openai.com/v1
 ```
+
+#### Supported Model Types
+
+| Model Type | Description | Required Config |
+|-----------|-------------|-----------------|
+| `ollama` | Local models via Ollama | `OLLAMA_HOST`, `OLLAMA_PORT`, `OLLAMA_MODEL` |
+| `minimax` | MiniMax cloud models | `MODEL_NAME`, `MODEL_API_KEY`, `MODEL_BASE_URL` |
+| `openai` | OpenAI-compatible APIs | `MODEL_NAME`, `MODEL_API_KEY`, `MODEL_BASE_URL` |
 
 ### Feishu Integration (WebSocket)
 
@@ -95,70 +109,51 @@ OLLAMA_MODEL=qwen3-vl:8b
 
 #### Setup Steps
 
-1. **1. Create Feishu App**
+1. **Create Feishu App**
    - Go to [Feishu Developer Console](https://open.feishu.cn/app)
    - Create a new app ("From Scratch" or "Enterprise Self-built App")
    - Get your `App ID` and `App Secret` from the "Credentials" section
 
-2. **2. Configure App Features**
+2. **Configure App Features**
    - Enable "Bot" feature in the app settings
    - Enable "Event Subscriptions" for message events
    - Add the required scopes: `im:message`, `im:message:read`, `im:message:send`
 
-3. **3. Update Environment Variables**
+3. **Update Environment Variables**
    - Add these variables to your `.env` file:
    ```env
    FEISHU_APP_ID=your_app_id
    FEISHU_APP_SECRET=your_app_secret
    ```
 
-4. **4. Start MicroBot**
+4. **Start MicroBot**
    - Run MicroBot with Feishu integration:
    ```bash
    microbot start
    ```
-   - The Feishu WebSocket connection will be established automatically
+   - The Feishu WebSocket connection will be established automatically using the official SDK
 
-5. **5. Test the Integration**
+5. **Test the Integration**
    - Add the bot to a Feishu group or chat
    - Send a message to the bot
-   - The bot should respond using the local Ollama model
+   - The bot should respond using the configured AI model
 
 #### Feishu Integration Details
 
-- **WebSocket Endpoint**: `wss://open.feishu.cn/open-apis/ws/v3/events`
+- **SDK**: Uses `@larksuiteoapi/node-sdk` official SDK
 - **Connection Type**: Client-initiated WebSocket connection
 - **Authentication**: Uses Feishu API access tokens
-- **Heartbeat**: Automatic 30-second heartbeat to maintain connection
+- **Heartbeat**: Automatic heartbeat to maintain connection
 - **Reconnection**: Automatic reconnection on failure
 - **Supported Events**: `im.message.receive_v1` (message events)
-- **Message Processing**: All Feishu messages are automatically processed by the same agent logic as WebSocket messages
+- **Message Processing**: All Feishu messages are automatically processed by the same agent logic
 
 #### Troubleshooting
 
 - **WebSocket Connection Failed**: Check your App ID and App Secret
-- **No Response from Bot**: Verify Ollama is running and the model is available
+- **No Response from Bot**: Verify your AI model is configured correctly and accessible
 - **Access Token Error**: Check if your app has the correct scopes
 - **Network Issues**: Ensure your server has outbound internet access
-
-#### Advanced Configuration
-
-You can customize the Feishu integration in your code:
-
-```typescript
-import { MicroBot } from 'microbot';
-
-const bot = new MicroBot({
-  feishuConfig: {
-    appId: 'your_app_id',
-    appSecret: 'your_app_secret',
-    reconnectInterval: 10000,  // 10 seconds
-    heartbeatInterval: 45000  // 45 seconds
-  }
-});
-
-await bot.start();
-```
 
 ### Programmatic Usage
 
@@ -183,6 +178,41 @@ bot.registerTool('greet', {
 await bot.start();
 ```
 
+### Using Different Models
+
+```typescript
+import { ModelFactory } from 'microbot';
+
+// Create an Ollama client
+const ollamaClient = ModelFactory.createClient({
+  type: 'ollama',
+  host: 'localhost',
+  port: 11434,
+  model: 'qwen3-vl:8b'
+});
+
+// Create a MiniMax client
+const minimaxClient = ModelFactory.createClient({
+  type: 'minimax',
+  model: 'abab6.5-chat',
+  apiKey: 'your_api_key',
+  baseUrl: 'https://api.minimaxi.com/v1'
+});
+
+// Create an OpenAI-compatible client
+const openaiClient = ModelFactory.createClient({
+  type: 'openai',
+  model: 'gpt-4',
+  apiKey: 'your_api_key',
+  baseUrl: 'https://api.openai.com/v1'
+});
+
+// Use the client
+const response = await ollamaClient.chat({
+  messages: [{ role: 'user', content: 'Hello!' }]
+});
+```
+
 ## 📁 Project Structure
 
 ```
@@ -191,13 +221,17 @@ microbot/
 │   ├── agent/          # AI agent core
 │   │   ├── tools/      # Tool registry
 │   │   ├── context.ts  # Execution context
-│   │   ├── loop.ts     # Agent loop with Ollama integration
+│   │   ├── loop.ts     # Agent loop with model integration
 │   │   ├── memory.ts   # Memory management
 │   │   └── skills.ts   # Agent skills
 │   ├── api/            # API clients
-│   │   ├── ollama.ts   # Ollama API client
-│   │   ├── feishu.ts   # Feishu (Lark) integration
-│   │   └── websocket.ts # WebSocket server
+│   │   ├── model.ts           # Model interface definition
+│   │   ├── model-factory.ts  # Model factory for creating clients
+│   │   ├── ollama-adapter.ts  # Ollama client adapter
+│   │   ├── minimax.ts         # MiniMax API client
+│   │   ├── openai-compatible.ts # OpenAI-compatible API client
+│   │   ├── feishu.ts          # Feishu (Lark) integration with SDK
+│   │   └── websocket.ts       # WebSocket server
 │   ├── session/        # Session management
 │   │   └── manager.ts  # Session manager
 │   ├── utils/          # Utilities
@@ -223,15 +257,12 @@ cd microbot
 
 # Install dependencies
 pnpm install
-
-# Pull required model
-ollama pull qwen3-vl:8b
 ```
 
 ### Scripts
 
 ```bash
-# Development mode (make sure Ollama is running)
+# Development mode
 pnpm dev
 
 # Build for production
@@ -254,12 +285,12 @@ pnpm test
 
 ### Core Concepts
 
-- **Agent**: The main AI agent that processes requests using local Ollama models
+- **Agent**: The main AI agent that processes requests using configurable AI models
 - **Session**: Manages conversation state and history
 - **Tool**: Functions that the agent can call
 - **Memory**: Stores and retrieves information
 - **Skill**: Pre-defined capabilities of the agent
-- **Ollama Client**: Communicates with local Ollama instance to process AI requests
+- **Model Client**: Unified interface for communicating with different AI providers
 
 ### API Reference
 
@@ -283,14 +314,52 @@ interface Tool {
 }
 ```
 
-### Ollama Integration
+#### ModelClient Interface
 
-The framework integrates with Ollama to provide local AI processing:
+```typescript
+interface ModelClient {
+  chat(request: ModelRequest): Promise<ModelResponse>;
+  stream(request: ModelRequest): AsyncIterable<StreamChunk>;
+}
+```
 
-- Automatically connects to the configured Ollama instance
-- Supports the qwen3-vl:8b model for both text and vision processing
-- Validates model availability before processing requests
-- Handles API errors gracefully
+#### ModelRequest
+
+```typescript
+interface ModelRequest {
+  messages: Message[];
+  model?: string;
+  stream?: boolean;
+  options?: {
+    temperature?: number;
+    max_tokens?: number;
+  };
+}
+```
+
+#### ModelResponse
+
+```typescript
+interface ModelResponse {
+  content: string;
+  model: string;
+  usage?: {
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number;
+  };
+}
+```
+
+### Model Integration
+
+The framework provides a unified interface for multiple AI providers:
+
+- **Ollama**: Local model inference with support for various models
+- **MiniMax**: Cloud-based AI models with high performance
+- **OpenAI-Compatible**: Any API that follows OpenAI's format
+
+All model clients implement the same `ModelClient` interface, making it easy to switch between providers.
 
 ## 🤝 Contributing
 
@@ -314,8 +383,8 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 - Based on nanobot architecture
 - Built with TypeScript and Node.js
-- Powered by Ollama for local AI inference
-- qwen3-vl:8b model support for advanced AI capabilities
+- Powered by Ollama, MiniMax, and OpenAI-compatible APIs for AI inference
+- Feishu SDK integration for seamless messaging
 - Open-source technologies
 
 ---
