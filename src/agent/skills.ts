@@ -2,11 +2,23 @@ import { Logger } from '../utils/logger.js';
 import { promises as fs } from 'fs';
 import { join, resolve } from 'path';
 
+interface SkillMetadata {
+  name?: string;
+  description?: string;
+  'argument-hint'?: string;
+  'disable-model-invocation'?: boolean;
+  'user-invocable'?: boolean;
+}
+
 interface Skill {
   name: string;
   available: boolean;
   execRequires: string[];
   description: string;
+  metadata: SkillMetadata;
+  instructions: string;
+  examples: string[];
+  guidelines: string[];
 }
 
 export class SkillsLoader {
@@ -23,36 +35,33 @@ export class SkillsLoader {
   async initialize() {
     this.logger.info('Initializing SkillsLoader...');
     
-    // 创建技能目录
     await this.ensureSkillsDirExists();
-    
-    // 加载技能
     await this.loadSkills();
+    
+    this.logger.info(`SkillsLoader initialized with ${this.skills.size} skills`);
   }
 
   private async ensureSkillsDirExists() {
     try {
       await fs.mkdir(this.skillsDir, { recursive: true });
-      this.logger.info(`Created skills directory: ${this.skillsDir}`);
+      this.logger.info(`Skills directory: ${this.skillsDir}`);
     } catch (error) {
       this.logger.error('Error creating skills directory:', error);
     }
   }
 
-  private async loadSkills() {
+  async loadSkills() {
     this.logger.info('Loading skills...');
 
     try {
-      // 递归扫描skills目录
       const skillDirs = await this.getSkillDirs();
       
       for (const skillDir of skillDirs) {
         const skillFile = join(skillDir, 'SKILL.md');
         
-        // 检查SKILL.md文件是否存在
         try {
           await fs.access(skillFile);
-          const skill = await this.parseSkillFile(skillFile);
+          const skill = await this.parseSkillFile(skillFile, skillDir);
           this.skills.set(skill.name, skill);
           this.logger.info(`Loaded skill: ${skill.name}`);
         } catch (error) {
@@ -84,37 +93,104 @@ export class SkillsLoader {
     return skillDirs;
   }
 
-  private async parseSkillFile(skillFile: string): Promise<Skill> {
+  private parseFrontMatter(content: string): { metadata: SkillMetadata; body: string } {
+    const frontMatterRegex = /^---\n([\s\S]*?)\n---\n([\s\S]*)$/;
+    const match = content.match(frontMatterRegex);
+
+    if (match) {
+      const yamlContent = match[1];
+      const body = match[2].trim();
+      
+      const metadata = this.parseYaml(yamlContent);
+      
+      return { metadata, body };
+    }
+
+    return { metadata: {}, body: content };
+  }
+
+  private parseYaml(yaml: string): SkillMetadata {
+    const result: SkillMetadata = {};
+    const lines = yaml.split('\n');
+    
+    for (const line of lines) {
+      const colonIndex = line.indexOf(':');
+      if (colonIndex > -1) {
+        const key = line.slice(0, colonIndex).trim();
+        let value = line.slice(colonIndex + 1).trim();
+        
+        if (value === 'true') value = 'true';
+        else if (value === 'false') value = 'false';
+        else if (value.startsWith('"') && value.endsWith('"')) {
+          value = value.slice(1, -1);
+        }
+        
+        (result as any)[key] = value;
+      }
+    }
+
+    return result;
+  }
+
+  private async parseSkillFile(skillFile: string, skillDir: string): Promise<Skill> {
     const content = await fs.readFile(skillFile, 'utf8');
+    const { metadata, body } = this.parseFrontMatter(content);
     
-    // 简单解析SKILL.md文件
-    // 这里应该使用更复杂的解析逻辑
-    const skillName = join(skillFile).split('\\').pop()?.replace('SKILL.md', '') || 'unknown';
-    
+    const skillName = metadata.name || skillDir.split('/').pop() || 'unknown';
+    const sections = this.parseSections(body);
+
     return {
       name: skillName,
       available: true,
       execRequires: [],
-      description: content
+      description: metadata.description || '',
+      metadata,
+      instructions: sections.instructions || '',
+      examples: sections.examples || [],
+      guidelines: sections.guidelines || []
     };
+  }
+
+  private parseSections(body: string): { instructions?: string; examples?: string[]; guidelines?: string[] } {
+    const sections: { instructions?: string; examples?: string[]; guidelines?: string[] } = {};
+    
+    const sectionsRegex = /## (Instructions|Examples|Guidelines)\n([\s\S]*?)(?=## |\n*$)/g;
+    let match;
+    
+    while ((match = sectionsRegex.exec(body)) !== null) {
+      const sectionName = match[1];
+      const sectionContent = match[2].trim();
+      
+      if (sectionName === 'Instructions') {
+        sections.instructions = sectionContent;
+      } else if (sectionName === 'Examples') {
+        sections.examples = sectionContent.split('\n')
+          .filter(line => line.trim().startsWith('- '))
+          .map(line => line.trim().slice(2));
+      } else if (sectionName === 'Guidelines') {
+        sections.guidelines = sectionContent.split('\n')
+          .filter(line => line.trim().startsWith('- '))
+          .map(line => line.trim().slice(2));
+      }
+    }
+
+    return sections;
   }
 
   async buildSkillsSummary(): Promise<string> {
     this.logger.info('Building skills summary...');
 
     try {
-      // 确保技能已加载
       if (this.skills.size === 0) {
         await this.loadSkills();
       }
 
-      // 构建技能汇总
       let summary = '# Available Skills\n\n';
       
       for (const skill of this.skills.values()) {
         if (skill.available) {
           summary += `## ${skill.name}\n`;
-          summary += `${skill.description}\n\n`;
+          summary += `${skill.metadata.description || skill.description}\n\n`;
         }
       }
 
@@ -129,12 +205,10 @@ export class SkillsLoader {
     this.logger.info('Loading skills for context:', skillNames);
 
     try {
-      // 确保技能已加载
       if (this.skills.size === 0) {
         await this.loadSkills();
       }
 
-      // 构建技能上下文
       let context = '# Loaded Skills\n\n';
       
       for (const skillName of skillNames) {
@@ -142,6 +216,18 @@ export class SkillsLoader {
         if (skill) {
           context += `## ${skill.name}\n`;
           context += `${skill.description}\n\n`;
+          
+          if (skill.instructions) {
+            context += `### Instructions\n${skill.instructions}\n\n`;
+          }
+          
+          if (skill.examples.length > 0) {
+            context += `### Examples\n`;
+            for (const example of skill.examples) {
+              context += `- ${example}\n`;
+            }
+            context += '\n';
+          }
         }
       }
 
@@ -152,11 +238,33 @@ export class SkillsLoader {
     }
   }
 
+  async findRelevantSkills(query: string): Promise<string[]> {
+    const relevantSkills: string[] = [];
+    const queryLower = query.toLowerCase();
+
+    for (const [name, skill] of this.skills) {
+      const searchText = `${name} ${skill.description} ${skill.metadata.description || ''}`.toLowerCase();
+      
+      if (searchText.includes(queryLower) || 
+          skill.examples.some(ex => ex.toLowerCase().includes(queryLower)) ||
+          skill.guidelines.some(g => g.toLowerCase().includes(queryLower))) {
+        relevantSkills.push(name);
+      }
+    }
+
+    return relevantSkills;
+  }
+
   getSkills(): Map<string, Skill> {
     return this.skills;
   }
 
   getSkill(name: string): Skill | undefined {
     return this.skills.get(name);
+  }
+
+  async reloadSkills() {
+    this.skills.clear();
+    await this.loadSkills();
   }
 }

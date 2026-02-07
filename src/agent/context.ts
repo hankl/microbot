@@ -12,6 +12,16 @@ export class ContextBuilder {
     this.logger = new Logger();
     this.memoryStore = new MemoryStore();
     this.skillsLoader = new SkillsLoader();
+    
+    this.initialize();
+  }
+
+  private async initialize() {
+    try {
+      await this.skillsLoader.initialize();
+    } catch (error) {
+      this.logger.error('Error initializing SkillsLoader:', error);
+    }
   }
 
   async buildContext(session: Session, message: any): Promise<any> {
