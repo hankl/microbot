@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MicroBot WebSocket Client</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+        }
+        .status {
+            padding: 10px;
+            margin-bottom: 20px;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+        .status.connected {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        .status.disconnected {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        .chat-container {
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            height: 400px;
+            overflow-y: auto;
+            padding: 10px;
+            margin-bottom: 20px;
+            background-color: #f9f9f9;
+        }
+        .message {
+            margin-bottom: 10px;
+            padding: 10px;
+            border-radius: 4px;
+            max-width: 80%;
+        }
+        .message.user {
+            background-color: #e3f2fd;
+            margin-left: auto;
+        }
+        .message.assistant {
+            background-color: #f1f1f1;
+        }
+        .message.system {
+            background-color: #fff3cd;
+            font-style: italic;
+        }
+        .message.error {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        .input-container {
+            display: flex;
+            gap: 10px;
+        }
+        input[type="text"] {
+            flex: 1;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        button {
+            padding: 10px 20px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        button:hover {
+            background-color: #0069d9;
+        }
+        button:disabled {
+            background-color: #6c757d;
+            cursor: not-allowed;
+        }
+        .info {
+            background-color: #d1ecf1;
+            color: #0c5460;
+            padding: 10px;
+            border-radius: 4px;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>MicroBot WebSocket Client</h1>
+        
+        <div class="status disconnected" id="status">
+            未连接
+        </div>
+        
+        <div class="chat-container" id="chatContainer">
+            <div class="message system">
+                请连接到 WebSocket 服务器...
+            </div>
+        </div>
+        
+        <div class="input-container">
+            <input type="text" id="messageInput" placeholder="输入消息..." disabled>
+            <button id="sendButton" disabled>发送</button>
+        </div>
+        
+        <div class="info">
+            <h3>使用说明：</h3>
+            <ol>
+                <li>确保 MicroBot 服务已启动: <code>microbot start</code></li>
+                <li>WebSocket 服务器默认运行在 <code>ws://localhost:8080</code></li>
+                <li>输入消息并按发送按钮</li>
+                <li>查看 AI 生成的回复</li>
+            </ol>
+        </div>
+    </div>
+
+    <script>
+        const statusElement = document.getElementById('status');
+        const chatContainer = document.getElementById('chatContainer');
+        const messageInput = document.getElementById('messageInput');
+        const sendButton = document.getElementById('sendButton');
+
+        let ws;
+        let clientId;
+
+        function connect() {
+            try {
+                // Connect to WebSocket server
+                ws = new WebSocket('ws://localhost:8080');
+
+                ws.onopen = function() {
+                    console.log('WebSocket connected');
+                    statusElement.className = 'status connected';
+                    statusElement.textContent = '已连接';
+                    messageInput.disabled = false;
+                    sendButton.disabled = false;
+                    
+                    addMessage('system', '已连接到 MicroBot WebSocket 服务器');
+                };
+
+                ws.onmessage = function(event) {
+                    try {
+                        const message = JSON.parse(event.data);
+                        console.log('Received message:', message);
+
+                        if (message.type === 'welcome') {
+                            clientId = message.clientId;
+                            addMessage('system', `欢迎！客户端ID: ${clientId}`);
+                        } else if (message.type === 'response') {
+                            addMessage('assistant', message.message);
+                        } else if (message.type === 'error') {
+                            addMessage('error', `错误: ${message.message}`);
+                        } else {
+                            addMessage('system', `收到消息: ${JSON.stringify(message)}`);
+                        }
+                    } catch (error) {
+                        console.error('Error parsing message:', error);
+                        addMessage('error', '解析消息时出错');
+                    }
+                };
+
+                ws.onclose = function() {
+                    console.log('WebSocket disconnected');
+                    statusElement.className = 'status disconnected';
+                    statusElement.textContent = '未连接';
+                    messageInput.disabled = true;
+                    sendButton.disabled = true;
+                    
+                    addMessage('system', 'WebSocket 连接已断开');
+                    
+                    // Try to reconnect after 3 seconds
+                    setTimeout(connect, 3000);
+                };
+
+                ws.onerror = function(error) {
+                    console.error('WebSocket error:', error);
+                    addMessage('error', `WebSocket 错误: ${error.message}`);
+                };
+            } catch (error) {
+                console.error('Error connecting to WebSocket:', error);
+                addMessage('error', `连接错误: ${error.message}`);
+                
+                // Try to reconnect after 5 seconds
+                setTimeout(connect, 5000);
+            }
+        }
+
+        function sendMessage() {
+            const content = messageInput.value.trim();
+            if (!content) return;
+
+            const message = {
+                id: Date.now().toString(),
+                content: content,
+                user: 'web-client-' + Math.random().toString(36).substr(2, 9),
+                channel: 'web-chat',
+                timestamp: new Date().toISOString()
+            };
+
+            try {
+                ws.send(JSON.stringify(message));
+                addMessage('user', content);
+                messageInput.value = '';
+            } catch (error) {
+                console.error('Error sending message:', error);
+                addMessage('error', '发送消息时出错');
+            }
+        }
+
+        function addMessage(role, content) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${role}`;
+            messageDiv.textContent = content;
+            chatContainer.appendChild(messageDiv);
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+
+        // Event listeners
+        sendButton.addEventListener('click', sendMessage);
+        messageInput.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                sendMessage();
+            }
+        });
+
+        // Connect on page load
+        window.onload = function() {
+            connect();
+        };
+
+        // Close WebSocket on page unload
+        window.onbeforeunload = function() {
+            if (ws) {
+                ws.close();
+            }
+        };
+    </script>
+</body>
+</html>

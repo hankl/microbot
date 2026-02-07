@@ -3,7 +3,28 @@ import { ContextBuilder } from './context.js';
 import { ToolRegistry } from './tools/registry.js';
 import { SessionManager } from '../session/manager.js';
 import { MemoryStore } from './memory.js';
-import { OllamaClient, OllamaMessage } from '../api/ollama.js';
+import { OllamaClient } from '../api/ollama.js';
+import { WebSocketService } from '../api/websocket.js';
+import { FeishuIntegration } from '../api/feishu.js';
+
+interface Message {
+  id: string;
+  content: string;
+  user: string;
+  channel: string;
+  timestamp: string;
+  type?: string;
+  [key: string]: any;
+}
+
+interface AgentLoopOptions {
+  websocketPort?: number;
+  feishuConfig?: {
+    appId: string;
+    appSecret: string;
+    verificationToken: string;
+  };
+}
 
 export class AgentLoop {
   private logger: Logger;
@@ -12,9 +33,11 @@ export class AgentLoop {
   private sessionManager: SessionManager;
   private memoryStore: MemoryStore;
   private ollamaClient: OllamaClient;
+  private webSocketService?: WebSocketService;
+  private feishuIntegration?: FeishuIntegration;
   private isRunning: boolean;
 
-  constructor() {
+  constructor(options?: AgentLoopOptions) {
     this.logger = new Logger();
     this.contextBuilder = new ContextBuilder();
     this.toolRegistry = new ToolRegistry();
@@ -22,6 +45,21 @@ export class AgentLoop {
     this.memoryStore = new MemoryStore();
     this.ollamaClient = new OllamaClient();
     this.isRunning = false;
+
+    // Initialize WebSocket service
+    const wsPort = options?.websocketPort || parseInt(process.env.WEBSOCKET_PORT || '8080');
+    this.webSocketService = new WebSocketService({ port: wsPort });
+
+    // Initialize Feishu integration if config provided
+    const feishuConfig = options?.feishuConfig || {
+      appId: process.env.FEISHU_APP_ID || '',
+      appSecret: process.env.FEISHU_APP_SECRET || '',
+      verificationToken: process.env.FEISHU_VERIFICATION_TOKEN || ''
+    };
+
+    if (feishuConfig.appId && feishuConfig.appSecret && feishuConfig.verificationToken) {
+      this.feishuIntegration = new FeishuIntegration(feishuConfig);
+    }
   }
 
   async start() {
@@ -40,138 +78,206 @@ export class AgentLoop {
   async stop() {
     this.logger.info('Stopping AgentLoop...');
     this.isRunning = false;
+
+    if (this.webSocketService) {
+      await this.webSocketService.close();
+    }
   }
 
   private async initialize() {
     this.logger.info('Initializing AgentLoop...');
+    
     await this.toolRegistry.initialize();
     await this.sessionManager.initialize();
     await this.memoryStore.initialize();
+    
+    // Setup WebSocket message handler
+    if (this.webSocketService) {
+      this.webSocketService.onMessage(this.processMessage.bind(this));
+    }
+
+    // Setup Feishu event handler
+    if (this.feishuIntegration) {
+      this.feishuIntegration.onEvent(this.processMessage.bind(this));
+      await this.feishuIntegration.start();
+    }
+
+    // Verify Ollama connection
+    try {
+      const model = this.ollamaClient.getConfig().model || 'qwen3-vl';
+      const modelExists = await this.ollamaClient.modelExists(model);
+      
+      if (modelExists) {
+        this.logger.info(`Ollama model ${model} is available`);
+      } else {
+        this.logger.warn(`Ollama model ${model} not found. Please run 'ollama pull ${model}'`);
+      }
+    } catch (error) {
+      this.logger.warn('Could not connect to Ollama. Make sure Ollama is running:', error);
+    }
   }
 
   private async runLoop() {
     this.logger.info('AgentLoop is running...');
+    this.logger.info('WebSocket server ready for connections');
+    
+    if (this.feishuIntegration) {
+      this.logger.info('Feishu integration ready for events');
+    }
 
+    // Keep the process running
     while (this.isRunning) {
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+  }
+
+  /**
+   * Process a message from any source (WebSocket, Feishu, etc.)
+   */
+  async processMessage(message: Message): Promise<void> {
+    try {
+      this.logger.info(`Processing message from ${message.user} in ${message.channel}`);
+      
+      // Validate message
+      if (!message.content || !message.user || !message.channel) {
+        this.logger.warn('Invalid message format:', message);
+        return;
+      }
+
+      // Get or create session
+      const session = await this.sessionManager.getOrCreateSession(
+        message.channel,
+        message.user
+      );
+
+      // Add message to session
+      session.addMessage({
+        role: 'user',
+        content: message.content,
+        timestamp: message.timestamp
+      });
+
+      // Build context
+      const context = await this.contextBuilder.buildContext(
+        session,
+        message
+      );
+
+      // Prepare messages for Ollama
+      const messages = [];
+
+      // Add system message
+      if (context.system) {
+        messages.push({
+          role: 'system',
+          content: context.system
+        });
+      }
+
+      // Add historical messages
+      if (context.history && Array.isArray(context.history)) {
+        for (const msg of context.history) {
+          if (msg.role && msg.content) {
+            messages.push({
+              role: msg.role === 'user' || msg.role === 'assistant' || msg.role === 'system'
+                ? msg.role
+                : 'user',
+              content: typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)
+            });
+          }
+        }
+      }
+
+      // Add current message
+      messages.push({
+        role: 'user',
+        content: message.content
+      });
+
+      // Generate response
+      let response: string;
       try {
-        // 这里应该从消息总线消费消息
-        // 暂时模拟一个简单的消息处理
-        await this.processMessage();
-        
-        // 避免CPU占用过高
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        const model = this.ollamaClient.getConfig().model || 'qwen3-vl';
+        const modelExists = await this.ollamaClient.modelExists(model);
+
+        if (!modelExists) {
+          response = `Sorry, the model ${model} is not available. Please make sure to pull it with 'ollama pull ${model}'.`;
+          this.logger.warn(`Model ${model} not found`);
+        } else {
+          const ollamaResponse = await this.ollamaClient.chat({
+            model,
+            messages,
+            options: {
+              temperature: 0.7,
+              num_predict: 1024
+            }
+          });
+
+          response = ollamaResponse.message?.content || 'Sorry, I could not generate a response.';
+          this.logger.info(`Generated response: ${response.substring(0, 100)}${response.length > 100 ? '...' : ''}`);
+        }
       } catch (error) {
-        this.logger.error('Error in runLoop:', error);
+        this.logger.error('Error calling Ollama:', error);
+        response = 'Sorry, I encountered an error while processing your request. Please make sure Ollama is running.';
+      }
+
+      // Add response to session
+      session.addMessage({
+        role: 'assistant',
+        content: response,
+        timestamp: new Date().toISOString()
+      });
+
+      // Save session
+      await this.sessionManager.saveSession(session);
+
+      // Send response back through WebSocket if clientId provided
+      if (message.clientId && this.webSocketService) {
+        this.webSocketService.sendToClient(message.clientId, {
+          type: 'response',
+          message: response,
+          sessionId: `${session.getChannel()}:${session.getUser()}`,
+          timestamp: new Date().toISOString()
+        });
+      }
+
+      // Send response to Feishu if it's a Feishu message
+      if (message.type === 'feishu' && this.feishuIntegration) {
+        await this.feishuIntegration.sendMessage(message.channel, response);
+      }
+
+    } catch (error) {
+      this.logger.error('Error processing message:', error);
+      
+      // Send error response if clientId provided
+      if (message.clientId && this.webSocketService) {
+        this.webSocketService.sendToClient(message.clientId, {
+          type: 'error',
+          message: 'Error processing message',
+          error: error instanceof Error ? error.message : String(error)
+        });
       }
     }
   }
 
-  private async processMessage() {
-    // 模拟消息处理
-    const message = {
-      id: Date.now().toString(),
-      content: 'Hello, microbot!',
-      user: 'test-user',
-      channel: 'test-channel',
-      timestamp: new Date().toISOString()
-    };
+  /**
+   * Get WebSocket service instance
+   */
+  getWebSocketService(): WebSocketService | undefined {
+    return this.webSocketService;
+  }
 
-    this.logger.info('Processing message:', message.content);
+  /**
+   * Get Feishu integration instance
+   */
+  getFeishuIntegration(): FeishuIntegration | undefined {
+    return this.feishuIntegration;
+  }
 
-    // 获取或创建会话
-    const session = await this.sessionManager.getOrCreateSession(
-      message.channel,
-      message.user
-    );
-
-    // 添加消息到会话
-    session.addMessage({
-      role: 'user',
-      content: message.content,
-      timestamp: message.timestamp
-    });
-
-    // 构建上下文
-    const context = await this.contextBuilder.buildContext(
-      session,
-      message
-    );
-
-    this.logger.debug('Built context:', context);
-
-    // Prepare messages for the Ollama chat API
-    const messages: OllamaMessage[] = [];
-    let response: string;
-
-    // Add system message if available
-    if (context.system) {
-      messages.push({
-        role: 'system',
-        content: context.system
-      });
-    }
-
-    // Add historical messages
-    if (context.history && Array.isArray(context.history)) {
-      for (const msg of context.history) {
-        if (msg.role && msg.content) {
-          messages.push({
-            role: msg.role === 'user' || msg.role === 'assistant' || msg.role === 'system'
-              ? msg.role
-              : 'user',
-            content: typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)
-          });
-        }
-      }
-    }
-
-    // Add current message
-    messages.push({
-      role: 'user',
-      content: message.content
-    });
-
-    try {
-      // Check if model exists before calling API
-      const requestedModel = this.ollamaClient.getConfig().model || 'qwen3-vl:8b';
-      const modelExists = await this.ollamaClient.modelExists(requestedModel);
-
-      if (!modelExists) {
-        this.logger.warn(`Model ${requestedModel} not found. Available models need to be pulled first.`);
-        response = 'Sorry, the requested model is not available. Please make sure the qwen3-vl:8b model is pulled in Ollama using "ollama pull qwen3-vl:8b".';
-        this.logger.info('Generated model not found response:', response);
-      } else {
-        // Call Ollama API to get response
-        const ollamaResponse = await this.ollamaClient.chat({
-          model: requestedModel,
-          messages: messages,
-          options: {
-            temperature: 0.7,
-            num_predict: 1024
-          }
-        });
-
-        // Extract the response from Ollama response
-        response = ollamaResponse.message?.content || 'Sorry, I could not generate a response.';
-        this.logger.info('Generated response from Ollama:', response);
-      }
-    } catch (error) {
-      this.logger.error('Error calling Ollama API:', error);
-      response = 'Sorry, I encountered an error processing your request. Please ensure Ollama is running and the model is available.';
-      this.logger.info('Generated error response:', response);
-    }
-
-    // 添加响应到会话
-    session.addMessage({
-      role: 'assistant',
-      content: response,
-      timestamp: new Date().toISOString()
-    });
-
-    // 保存会话
-    await this.sessionManager.saveSession(session);
-
-    // 这里应该将响应发布到消息总线
-    this.logger.info('Generated response:', response);
+  /**
+   * Get Ollama client instance
+   */
+  getOllamaClient(): OllamaClient {
+    return this.ollamaClient;
   }
 }
