@@ -3,7 +3,8 @@ import { ContextBuilder } from './context.js';
 import { ToolRegistry } from './tools/registry.js';
 import { SessionManager } from '../session/manager.js';
 import { MemoryStore } from './memory.js';
-import { OllamaClient } from '../api/ollama.js';
+import { ModelFactory } from '../api/model-factory.js';
+import { ModelClient, ModelRequest, ModelResponse } from '../api/model.js';
 import { WebSocketService } from '../api/websocket.js';
 import { FeishuIntegration } from '../api/feishu.js';
 
@@ -32,7 +33,7 @@ export class AgentLoop {
   private toolRegistry: ToolRegistry;
   private sessionManager: SessionManager;
   private memoryStore: MemoryStore;
-  private ollamaClient: OllamaClient;
+  private modelClient: ModelClient;
   private webSocketService?: WebSocketService;
   private feishuIntegration?: FeishuIntegration;
   private isRunning: boolean;
@@ -43,7 +44,7 @@ export class AgentLoop {
     this.toolRegistry = new ToolRegistry();
     this.sessionManager = new SessionManager();
     this.memoryStore = new MemoryStore();
-    this.ollamaClient = new OllamaClient();
+    this.modelClient = ModelFactory.createClientFromEnv();
     this.isRunning = false;
 
     // Initialize WebSocket service
@@ -102,18 +103,26 @@ export class AgentLoop {
       await this.feishuIntegration.start();
     }
 
-    // Verify Ollama connection
+    // Verify model connection
     try {
-      const model = this.ollamaClient.getConfig().model || 'qwen3-vl';
-      const modelExists = await this.ollamaClient.modelExists(model);
+      const model = this.modelClient.getConfig().model || 'qwen3-vl';
+      const modelType = this.modelClient.getConfig().type || 'ollama';
       
-      if (modelExists) {
-        this.logger.info(`Ollama model ${model} is available`);
+      // For Ollama, check if model exists
+      if (modelType === 'ollama') {
+        // @ts-ignore - Only Ollama has modelExists method
+        const modelExists = await this.modelClient.modelExists?.(model);
+        if (modelExists) {
+          this.logger.info(`Ollama model ${model} is available`);
+        } else {
+          this.logger.warn(`Ollama model ${model} not found. Please run 'ollama pull ${model}'`);
+        }
       } else {
-        this.logger.warn(`Ollama model ${model} not found. Please run 'ollama pull ${model}'`);
+        // For other model types, just log the configuration
+        this.logger.info(`${modelType} model configured: ${model}`);
       }
     } catch (error) {
-      this.logger.warn('Could not connect to Ollama. Make sure Ollama is running:', error);
+      this.logger.warn('Could not connect to model service:', error);
     }
   }
 
@@ -197,28 +206,35 @@ export class AgentLoop {
       // Generate response
       let response: string;
       try {
-        const model = this.ollamaClient.getConfig().model || 'qwen3-vl';
-        const modelExists = await this.ollamaClient.modelExists(model);
+        const modelConfig = this.modelClient.getConfig();
+        const model = modelConfig.model || 'qwen3-vl';
+        const modelType = modelConfig.type || 'ollama';
 
-        if (!modelExists) {
-          response = `Sorry, the model ${model} is not available. Please make sure to pull it with 'ollama pull ${model}'.`;
-          this.logger.warn(`Model ${model} not found`);
-        } else {
-          const ollamaResponse = await this.ollamaClient.chat({
-            model,
-            messages,
-            options: {
-              temperature: 0.7,
-              num_predict: 1024
-            }
-          });
-
-          response = ollamaResponse.message?.content || 'Sorry, I could not generate a response.';
-          this.logger.info(`Generated response: ${response.substring(0, 100)}${response.length > 100 ? '...' : ''}`);
+        // For Ollama, check if model exists
+        if (modelType === 'ollama') {
+          // @ts-ignore - Only Ollama has modelExists method
+          const modelExists = await this.modelClient.modelExists?.(model);
+          if (!modelExists) {
+            response = `Sorry, the model ${model} is not available. Please make sure to pull it with 'ollama pull ${model}'.`;
+            this.logger.warn(`Model ${model} not found`);
+            return;
+          }
         }
+
+        const modelResponse = await this.modelClient.chat({
+          model,
+          messages,
+          options: {
+            temperature: 0.7,
+            max_tokens: 1024
+          }
+        });
+
+        response = modelResponse.message.content || 'Sorry, I could not generate a response.';
+        this.logger.info(`Generated response: ${response.substring(0, 100)}${response.length > 100 ? '...' : ''}`);
       } catch (error) {
-        this.logger.error('Error calling Ollama:', error);
-        response = 'Sorry, I encountered an error while processing your request. Please make sure Ollama is running.';
+        this.logger.error('Error calling model service:', error);
+        response = 'Sorry, I encountered an error while processing your request. Please check the model service configuration.';
       }
 
       // Add response to session
@@ -275,9 +291,16 @@ export class AgentLoop {
   }
 
   /**
-   * Get Ollama client instance
+   * Get model client instance
    */
-  getOllamaClient(): OllamaClient {
-    return this.ollamaClient;
+  getModelClient(): ModelClient {
+    return this.modelClient;
+  }
+
+  /**
+   * Get Ollama client instance (for backward compatibility)
+   */
+  getOllamaClient(): any {
+    return this.modelClient;
   }
 }
