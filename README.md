@@ -1,6 +1,6 @@
 # MicroBot
 
-A lightweight AI agent framework based on nanobot, implemented with TypeScript + Node.js
+A lightweight AI agent framework inspired by openclaw & nanobot, implemented with TypeScript + Node.js
 
 ## 🚀 Features
 
