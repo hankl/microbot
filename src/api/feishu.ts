@@ -35,6 +35,8 @@ export class FeishuIntegration {
   private wsClient: Lark.WSClient | null;
   private apiClient: Lark.Client;
   private reconnectInterval: NodeJS.Timeout | null;
+  private processedMessages: Set<string>;
+  private readonly MESSAGE_DEDUP_WINDOW = 30000;
 
   constructor(config: FeishuConfig) {
     this.config = {
@@ -48,6 +50,7 @@ export class FeishuIntegration {
     this.eventHandlers = [];
     this.wsClient = null;
     this.reconnectInterval = null;
+    this.processedMessages = new Set();
 
     const baseConfig = {
       appId: this.config.appId,
@@ -96,6 +99,20 @@ export class FeishuIntegration {
    */
   private async handleEvent(data: any) {
     this.logger.info(`Received Feishu event: im.message.receive_v1`);
+
+    // 去重：检查是否已处理过该消息
+    let messageId = data.message?.message_id || data.message_id || data.event?.message_id;
+    if (messageId) {
+      if (this.processedMessages.has(messageId)) {
+        this.logger.debug(`Duplicate message detected: ${messageId}, skipping...`);
+        return;
+      }
+      this.processedMessages.add(messageId);
+      // 30秒后清理过期消息ID
+      setTimeout(() => {
+        this.processedMessages.delete(messageId);
+      }, this.MESSAGE_DEDUP_WINDOW);
+    }
 
     // 检查数据结构
     if (!data) {
@@ -150,13 +167,13 @@ export class FeishuIntegration {
     }
 
     // 查找其他必要字段
-    let messageId = messageData.message_id || data.message_id;
+    const messageIdForStandardized = messageData.message_id || data.message_id;
     let chatId = messageData.chat_id || data.chat_id || messageData.receive_id;
     let createTime = messageData.create_time || data.create_time || messageData.timestamp;
 
     // Create standardized message
     const standardizedMessage = {
-      id: messageId || `msg_${Date.now()}`,
+      id: messageId || messageIdForStandardized || `msg_${Date.now()}`,
       content: typeof content === 'object' ? content.text || JSON.stringify(content) : content,
       user: userId,
       channel: chatId || `channel_${Date.now()}`,

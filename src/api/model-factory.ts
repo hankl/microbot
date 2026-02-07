@@ -1,6 +1,7 @@
 import { ModelClient, ModelConfig } from './model.js';
 import { OllamaClient } from './ollama-adapter.js';
 import { MinimaxClient } from './minimax.js';
+import { OpenAICompatibleClient } from './openai-compatible.js';
 
 export class ModelFactory {
   static createClient(config: ModelConfig): ModelClient {
@@ -9,6 +10,8 @@ export class ModelFactory {
         return new OllamaClient(config);
       case 'minimax':
         return new MinimaxClient(config);
+      case 'openai':
+        return new OpenAICompatibleClient(config);
       default:
         throw new Error(`Unsupported model type: ${config.type}`);
     }
