@@ -97,24 +97,70 @@ export class FeishuIntegration {
   private async handleEvent(data: any) {
     this.logger.info(`Received Feishu event: im.message.receive_v1`);
 
-    const message = data as FeishuMessage;
-    this.logger.info(`Message received from user ${message.sender.sender_id.open_id}: ${message.content.substring(0, 100)}...`);
+    // 检查数据结构
+    if (!data) {
+      this.logger.error('Invalid event data: null or undefined');
+      return;
+    }
+
+    // 记录原始数据结构（只记录关键部分）
+    this.logger.debug('Event data structure:', {
+      hasMessage: !!data.message,
+      hasEvent: !!data.event,
+      hasSender: !!data.sender || !!data.message?.sender || !!data.event?.sender,
+      keys: Object.keys(data)
+    });
+
+    // 尝试不同的数据结构路径
+    let messageData = data.message || data.event || data;
+
+    if (!messageData) {
+      this.logger.error('Invalid message data: null or undefined');
+      return;
+    }
+
+    // 查找发送者信息
+    let senderInfo = messageData.sender || data.sender;
+    if (!senderInfo) {
+      this.logger.error('Invalid message structure: missing sender information');
+      return;
+    }
+
+    // 查找用户 ID
+    let userId = senderInfo.sender_id?.open_id || senderInfo.open_id || senderInfo.user_id;
+    if (!userId) {
+      this.logger.error('Invalid message structure: missing user ID');
+      return;
+    }
+
+    // 查找消息内容
+    let messageContent = messageData.content || data.content;
+    if (!messageContent) {
+      this.logger.info(`Message received from user ${userId}: [empty content]`);
+    } else {
+      this.logger.info(`Message received from user ${userId}: ${typeof messageContent === 'string' ? messageContent.substring(0, 100) : '[non-string content]'}...`);
+    }
 
     // Parse message content (usually JSON string)
     let content;
     try {
-      content = JSON.parse(message.content);
+      content = typeof messageContent === 'string' ? JSON.parse(messageContent) : messageContent;
     } catch {
-      content = message.content;
+      content = messageContent;
     }
+
+    // 查找其他必要字段
+    let messageId = messageData.message_id || data.message_id;
+    let chatId = messageData.chat_id || data.chat_id || messageData.receive_id;
+    let createTime = messageData.create_time || data.create_time || messageData.timestamp;
 
     // Create standardized message
     const standardizedMessage = {
-      id: message.message_id,
+      id: messageId || `msg_${Date.now()}`,
       content: typeof content === 'object' ? content.text || JSON.stringify(content) : content,
-      user: message.sender.sender_id.open_id,
-      channel: message.chat_id,
-      timestamp: new Date(parseInt(message.create_time) * 1000).toISOString(),
+      user: userId,
+      channel: chatId || `channel_${Date.now()}`,
+      timestamp: createTime ? new Date(parseInt(createTime) * 1000).toISOString() : new Date().toISOString(),
       type: 'feishu',
       raw: data
     };
