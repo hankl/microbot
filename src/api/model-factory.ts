@@ -26,12 +26,18 @@ export class ModelFactory {
     const config: ModelConfig = {
       type: modelType as 'ollama' | 'minimax' | 'openai',
       apiKey: process.env.MODEL_API_KEY,
-      model: process.env.MODEL_NAME,
       baseUrl: process.env.MODEL_BASE_URL,
       host: process.env.OLLAMA_HOST,
       port: process.env.OLLAMA_PORT ? parseInt(process.env.OLLAMA_PORT) : undefined,
       protocol: process.env.OLLAMA_PROTOCOL
     };
+
+    // Ollama 使用 OLLAMA_MODEL，其他类型使用 MODEL_NAME
+    if (modelType === 'ollama') {
+      config.model = process.env.OLLAMA_MODEL;
+    } else {
+      config.model = process.env.MODEL_NAME;
+    }
 
     return this.createClient(config);
   }
