@@ -2,16 +2,24 @@ import { Logger } from '../utils/logger.js';
 import { Session } from '../session/manager.js';
 import { MemoryStore } from './memory.js';
 import { SkillsLoader } from './skills.js';
+import { promises as fs } from 'fs';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 export class ContextBuilder {
   private logger: Logger;
   private memoryStore: MemoryStore;
   private skillsLoader: SkillsLoader;
+  private soulContent: string;
 
   constructor() {
     this.logger = new Logger();
     this.memoryStore = new MemoryStore();
     this.skillsLoader = new SkillsLoader();
+    this.soulContent = '';
     
     this.initialize();
   }
@@ -19,8 +27,21 @@ export class ContextBuilder {
   private async initialize() {
     try {
       await this.skillsLoader.initialize();
+      await this.loadSoul();
     } catch (error) {
-      this.logger.error('Error initializing SkillsLoader:', error);
+      this.logger.error('Error initializing ContextBuilder:', error);
+    }
+  }
+
+  private async loadSoul() {
+    try {
+      const soulPath = join(__dirname, '..', '..', 'soul.md');
+      const content = await fs.readFile(soulPath, 'utf8');
+      this.soulContent = content;
+      this.logger.info('Soul content loaded successfully');
+    } catch (error) {
+      this.logger.warn('Could not load soul.md, using default system prompt:', error);
+      this.soulContent = '';
     }
   }
 
@@ -52,8 +73,11 @@ export class ContextBuilder {
   }
 
   private async buildSystemPrompt(): Promise<string> {
-    // 从bootstrap文件构建系统提示
-    // 暂时返回一个默认的系统提示
+    if (this.soulContent) {
+      return this.soulContent;
+    }
+    
+    // 如果没有soul.md，返回默认的系统提示
     return `You are Microbot, a lightweight AI agent framework.
 
 Your core instructions:

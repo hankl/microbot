@@ -175,11 +175,18 @@ export class AgentLoop {
       // Prepare messages for Ollama
       const messages = [];
 
-      // Add system message
+      // Add system message with skills information
       if (context.system) {
+        let systemContent = context.system;
+        
+        // Add skills information to system prompt
+        if (context.skills) {
+          systemContent += `\n\n## Available Skills\n${context.skills}`;
+        }
+        
         messages.push({
           role: 'system',
-          content: context.system
+          content: systemContent
         });
       }
 

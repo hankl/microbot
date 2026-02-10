@@ -94,7 +94,8 @@ export class SkillsLoader {
   }
 
   private parseFrontMatter(content: string): { metadata: SkillMetadata; body: string } {
-    const frontMatterRegex = /^---\n([\s\S]*?)\n---\n([\s\S]*)$/;
+    // Support both Windows (\r\n) and Unix (\n) line endings
+    const frontMatterRegex = /^---[\r\n]+([\s\S]*?)[\r\n]+---[\r\n]+([\s\S]*)$/;
     const match = content.match(frontMatterRegex);
 
     if (match) {
@@ -136,7 +137,7 @@ export class SkillsLoader {
     const content = await fs.readFile(skillFile, 'utf8');
     const { metadata, body } = this.parseFrontMatter(content);
     
-    const skillName = metadata.name || skillDir.split('/').pop() || 'unknown';
+    const skillName = metadata.name || skillDir.split(/[/\\]/).pop() || 'unknown';
     const sections = this.parseSections(body);
 
     return {
