@@ -44,7 +44,3 @@ async function main() {
 }
 
 export { main };
-
-// 直接执行main函数，不使用条件判断
-console.log('Direct execution detected');
-main();
