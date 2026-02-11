@@ -9,175 +9,53 @@ description: Analyze and query multiple file formats including JSON, CSV, and Ng
 
 This skill enables SQL-based data analysis on various file formats without requiring a database. It's perfect for quick data exploration, log analysis, and reporting tasks.
 
-## Supported File Formats
+## Usage
 
-### JSON (.json)
-Supports three JSON formats:
+### Basic Usage
 
-1. **JSON object containing data array**
-```json
-{
-  "code": "success",
-  "data": [
-    {"id": 1, "name": "Project 1", "type": "PROJECT"},
-    {"id": 2, "name": "Project 2", "type": "PROJECT"}
-  ]
-}
+```bash
+# Auto-detect format (recommended)
+sqltools <file_path>
+
+# List all supported formats
+sqltools --list-formats
+
+# Force specific format
+sqltools <file_path> --format json|csv|nginx
+
+# Custom table name
+sqltools <file_path> --table <table_name>
+
+# Execute SQL query directly (non-interactive mode, ideal for AI agents)
+sqltools <file_path> --query 'SELECT COUNT(*) FROM table_name'
+
+# Show first 3 records
+sqltools <file_path> --head
+
+# Show help
+sqltools --help
 ```
 
-2. **Direct JSON array**
-```json
-[
-  {"id": 1, "name": "Project 1", "type": "PROJECT"},
-  {"id": 2, "name": "Project 2", "type": "PROJECT"}
-]
+### Non-Interactive Mode (for AI Agents)
+
+The `--query` and `--head` options allow you to execute operations directly without entering interactive mode. This is particularly useful for AI agents and automation:
+
+```bash
+# Show first 3 records
+sqltools data.json --head
+
+# Count records
+sqltools data.json --query 'SELECT COUNT(*) FROM data'
+
+# Filter and aggregate
+sqltools data.json --query 'SELECT type, COUNT(*) FROM data GROUP BY type'
+
+# Complex queries
+sqltools data.csv --query 'SELECT department, AVG(salary) as avg_salary FROM data GROUP BY department ORDER BY avg_salary DESC'
 ```
 
-3. **Single JSON object**
-```json
-{"id": 1, "name": "Project 1", "type": "PROJECT"}
-```
+The output is returned as JSON, making it easy to parse programmatically.
 
-### CSV (.csv, .tsv)
-Supports standard CSV/TSV files with automatic delimiter detection and type inference:
-```csv
-id,name,age,department,salary
-1,Alice,28,Engineering,95000
-2,Bob,32,Marketing,87000
-3,Charlie,25,Engineering,82000
-```
-
-### Nginx Log (.log, .access.log)
-Supports Nginx Combined format with automatic field parsing:
-```
-127.0.0.1 - - [10/Oct/2023:13:55:36 +0000] "GET /api/test HTTP/1.1" 200 1234 "-" "Mozilla/5.0"
-192.168.1.100 - - [10/Oct/2023:13:55:37 +0000] "POST /api/login HTTP/1.1" 200 567 "http://example.com" "curl/7.68.0"
-```
-
-Parsed fields:
-- `remote_addr` - Client IP address
-- `time_local` - Access time (converted to ISO format)
-- `request` / `method` / `path` / `protocol` - Request details
-- `status` - HTTP status code (integer)
-- `body_bytes_sent` - Response bytes sent (integer)
-- `http_referer` - Referrer page
-- `http_user_agent` - User agent
-
-## Usage Patterns
-
-### Basic Data Exploration
-
-**Count total records:**
-```sql
-SELECT COUNT(*) FROM table_name;
-```
-
-**View sample data:**
-```sql
-SELECT * FROM table_name LIMIT 10;
-```
-
-**Get distinct values:**
-```sql
-SELECT DISTINCT column_name FROM table_name;
-```
-
-### Filtering and Selection
-
-**Filter by condition:**
-```sql
-SELECT * FROM table_name WHERE status = 'success';
-```
-
-**Multiple conditions:**
-```sql
-SELECT * FROM table_name WHERE age > 25 AND department = 'Engineering';
-```
-
-**Pattern matching:**
-```sql
-SELECT * FROM table_name WHERE name LIKE '%Project%';
-```
-
-### Aggregation and Grouping
-
-**Group by category:**
-```sql
-SELECT type, COUNT(*) as count FROM table_name GROUP BY type;
-```
-
-**Calculate statistics:**
-```sql
-SELECT department, AVG(salary) as avg_salary, MAX(salary) as max_salary, MIN(salary) as min_salary 
-FROM table_name 
-GROUP BY department;
-```
-
-**Multiple aggregations:**
-```sql
-SELECT status, COUNT(*) as count, AVG(body_bytes_sent) as avg_bytes 
-FROM table_name 
-GROUP BY status 
-ORDER BY count DESC;
-```
-
-### Sorting and Limiting
-
-**Top N records:**
-```sql
-SELECT * FROM table_name ORDER BY salary DESC LIMIT 10;
-```
-
-**Sort by multiple columns:**
-```sql
-SELECT * FROM table_name ORDER BY department ASC, salary DESC;
-```
-
-### Nginx Log Analysis
-
-**Status code distribution:**
-```sql
-SELECT status, COUNT(*) as count FROM table_name GROUP BY status ORDER BY count DESC;
-```
-
-**Find errors (4xx/5xx):**
-```sql
-SELECT * FROM table_name WHERE status >= 400;
-```
-
-**Top IPs by request count:**
-```sql
-SELECT remote_addr, COUNT(*) as request_count 
-FROM table_name 
-GROUP BY remote_addr 
-ORDER BY request_count DESC 
-LIMIT 10;
-```
-
-**Request count by path:**
-```sql
-SELECT path, COUNT(*) as request_count 
-FROM table_name 
-GROUP BY path 
-ORDER BY request_count DESC 
-LIMIT 20;
-```
-
-**Find slow responses (large body size):**
-```sql
-SELECT path, status, body_bytes_sent 
-FROM table_name 
-WHERE body_bytes_sent > 10000 
-ORDER BY body_bytes_sent DESC;
-```
-
-**Time-based analysis:**
-```sql
-SELECT DATE(time_local) as date, COUNT(*) as request_count 
-FROM table_name 
-GROUP BY DATE(time_local) 
-ORDER BY date DESC;
-```
 
 ## Best Practices
 

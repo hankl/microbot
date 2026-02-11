@@ -6,26 +6,26 @@ import { AgentLoop } from './dist/agent/loop.js';
 // Load environment variables
 dotenv.config();
 
-async function testSkillUsage() {
-  console.log('Testing microbot skill usage...');
+async function testCSVAnalysis() {
+  console.log('Testing CSV file analysis...');
 
   // Create AgentLoop instance
-  const agentLoop = new AgentLoop({ websocketPort: 8082 });
+  const agentLoop = new AgentLoop({ websocketPort: 8083 });
 
   try {
-    // Start the agent loop in the background (it runs forever)
+    // Start the agent loop in the background
     agentLoop.start().catch(error => {
       console.error('Error in AgentLoop:', error);
     });
     console.log('AgentLoop started successfully');
 
     // Wait a bit for initialization
-    await new Promise(resolve => setTimeout(resolve, 3000));
+    await new Promise(resolve => setTimeout(resolve, 2000));
 
-    // Test message: "统计分析test-data.json里有多少个工程师"
+    // Test message: "统计分析test-data.csv里有多少个工程师"
     const testMessage = {
-      id: 'test-1',
-      content: '统计分析test-data.json里有多少个工程师',
+      id: 'test-2',
+      content: '统计分析test-data.csv里有多少个工程师',
       user: 'test-user',
       channel: 'test-channel',
       timestamp: new Date().toISOString(),
@@ -51,4 +51,4 @@ async function testSkillUsage() {
   }
 }
 
-testSkillUsage();
+testCSVAnalysis();
