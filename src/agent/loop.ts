@@ -250,6 +250,33 @@ export class AgentLoop {
   }
 
   /**
+   * Detect file format from file extension
+   */
+  private detectFileFormat(filePath: string): string {
+    const fileName = filePath.split('/').pop() || filePath.split('\\').pop() || filePath;
+    const ext = fileName.split('.').pop()?.toLowerCase() || '';
+    
+    switch (ext) {
+      case 'json':
+        return 'json';
+      case 'csv':
+        return 'csv';
+      case 'tsv':
+        return 'csv';
+      case 'log':
+        return 'nginx';
+      case 'nginx':
+        return 'nginx';
+      default:
+        // Check for .access.log pattern
+        if (fileName.endsWith('.access.log')) {
+          return 'nginx';
+        }
+        return 'json';
+    }
+  }
+
+  /**
    * Execute data-analyzer skill
    */
   private async executeDataAnalyzer(params: Record<string, string>): Promise<string> {
@@ -272,7 +299,10 @@ export class AgentLoop {
         path = 'test-data.json';
       }
       
-      this.logger.info(`Parsed data-analyzer params - path: ${path}, sql: ${sql}`);
+      // Extract format from params or auto-detect from file extension
+      let format = params.format || this.detectFileFormat(path);
+      
+      this.logger.info(`Parsed data-analyzer params - path: ${path}, format: ${format}, sql: ${sql}`);
       
       // Execute using sqltools CLI tool
       try {
@@ -292,12 +322,9 @@ export class AgentLoop {
           processedSql = sql.replace(/FROM\s+([\w-]+(?:\.[\w]+)?)/i, `FROM ${tableName}`);
         }
         
-        // Escape single quotes in SQL query
-        const escapedSql = processedSql.replace(/'/g, "'\\''");
-        
-        // Build sqltools command with custom table name
+        // Build sqltools command with custom table name and format
         // For Windows PowerShell, we need to handle quotes differently
-        const cmd = `sqltools "${path}" --table "${tableName}" --query "${processedSql}"`;
+        const cmd = `sqltools "${path}" --format "${format}" --table "${tableName}" --query "${processedSql}"`;
         
         this.logger.info(`Running command: ${cmd}`);
         const { stdout, stderr } = await execAsync(cmd, {
