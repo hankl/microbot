@@ -46,8 +46,45 @@ export class ToolRegistry {
 
   private async registerDefaultTools() {
     // 这里应该注册默认工具
-    // 暂时注册一些模拟工具
     this.logger.info('Registering default tools...');
+    
+    // 动态导入基本工具以避免循环依赖
+    try {
+      const basicTools = await import('./basic-tools.js');
+      
+      // 注册 bash 工具
+      if (basicTools.BashTool) {
+        this.registerTool(new basicTools.BashTool());
+      }
+      
+      // 注册 exec 工具
+      if (basicTools.ExecTool) {
+        this.registerTool(new basicTools.ExecTool());
+      }
+      
+      // 注册 read 工具
+      if (basicTools.ReadTool) {
+        this.registerTool(new basicTools.ReadTool());
+      }
+      
+      // 注册 write 工具
+      if (basicTools.WriteTool) {
+        this.registerTool(new basicTools.WriteTool());
+      }
+      
+      // 注册 list_dir 工具
+      if (basicTools.ListDirTool) {
+        this.registerTool(new basicTools.ListDirTool());
+      }
+      
+      // 注册 process 工具
+      if (basicTools.ProcessTool) {
+        this.registerTool(new basicTools.ProcessTool());
+      }
+      
+    } catch (error) {
+      this.logger.error('Error importing basic tools:', error);
+    }
   }
 
   registerTool(tool: BaseTool) {
