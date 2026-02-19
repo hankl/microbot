@@ -6,7 +6,7 @@ interface ToolDefinition {
   parameters: any;
 }
 
-interface ToolResult {
+export interface ToolResult {
   success: boolean;
   data?: any;
   error?: string;
